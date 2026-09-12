@@ -88,7 +88,6 @@ const W = 960, H = 540;
 const TILE = 48;
 const LEVEL_W = 1776;
 const DPR = Math.min(window.devicePixelRatio || 1, 2);
-const PX = 3;
 
 const PHY = {
   gravity: 0.48,
@@ -469,6 +468,45 @@ class Cloud {
     ctx.ellipse(sx + this.w * 0.38, this.y + this.h * 0.22, this.w * 0.13, this.h * 0.18, -0.2, 0, Math.PI * 2);
     ctx.fill();
 
+    ctx.restore();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// LIGHT MOTES
+// ═══════════════════════════════════════════════════════════════
+class LightMote {
+  constructor() { this.reset(true); }
+  reset(init) {
+    this.x = Math.random() * (LEVEL_W + W);
+    this.y = 80 + Math.random() * (GROUND_Y - 140);
+    this.r = 1.5 + Math.random() * 2.5;
+    this.baseAlpha = 0.15 + Math.random() * 0.25;
+    this.speed = 0.1 + Math.random() * 0.2;
+    this.phase = Math.random() * Math.PI * 2;
+    this.bobAmp = 8 + Math.random() * 12;
+    this.bobSpeed = 0.008 + Math.random() * 0.012;
+  }
+  update(frame) {
+    this.x -= this.speed;
+    if (this.x < -W) { this.x = LEVEL_W + W + Math.random() * 200; }
+    this.offsetY = Math.sin(frame * this.bobSpeed + this.phase) * this.bobAmp;
+    this.alpha = this.baseAlpha * (0.5 + 0.5 * Math.sin(frame * 0.02 + this.phase));
+  }
+  draw(ctx, camX) {
+    const sx = this.x - camX * 0.5;
+    if (sx < -20 || sx > W + 20) return;
+    const sy = this.y + this.offsetY;
+    ctx.save();
+    ctx.globalAlpha = this.alpha;
+    const g = ctx.createRadialGradient(sx, sy, 0, sx, sy, this.r * 3);
+    g.addColorStop(0, 'rgba(255,248,220,0.9)');
+    g.addColorStop(0.5, 'rgba(255,240,200,0.3)');
+    g.addColorStop(1, 'rgba(255,240,200,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(sx, sy, this.r * 3, 0, Math.PI * 2);
+    ctx.fill();
     ctx.restore();
   }
 }
@@ -931,10 +969,22 @@ function drawFlower(ctx, x, camX, color) {
 // ═══════════════════════════════════════════════════════════════
 function drawBackground(ctx, camX) {
   const grad = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
-  grad.addColorStop(0, PAL.skyTop);
-  grad.addColorStop(0.5, PAL.skyMid);
+  grad.addColorStop(0, '#3A8DE0');
+  grad.addColorStop(0.35, PAL.skyTop);
+  grad.addColorStop(0.65, PAL.skyMid);
+  grad.addColorStop(0.85, '#C8E0F0');
   grad.addColorStop(1, PAL.skyBot);
   ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, GROUND_Y);
+
+  const sunX = W * 0.78 - camX * 0.02;
+  const sunY = 85;
+  const sunGlow = ctx.createRadialGradient(sunX, sunY, 10, sunX, sunY, 160);
+  sunGlow.addColorStop(0, 'rgba(255,245,220,0.95)');
+  sunGlow.addColorStop(0.15, 'rgba(255,235,190,0.5)');
+  sunGlow.addColorStop(0.4, 'rgba(255,220,160,0.15)');
+  sunGlow.addColorStop(1, 'rgba(255,220,160,0)');
+  ctx.fillStyle = sunGlow;
   ctx.fillRect(0, 0, W, GROUND_Y);
 
   drawMountains(ctx, camX * 0.06, PAL.mountain1, PAL.mountain1Snow, [
@@ -942,11 +992,18 @@ function drawBackground(ctx, camX) {
     { x: 780, h: 190, w: 260 }, { x: 1050, h: 150, w: 220 }, { x: 1350, h: 175, w: 240 },
     { x: 1620, h: 135, w: 200 }, { x: 1880, h: 165, w: 230 },
   ]);
+
+  ctx.fillStyle = 'rgba(140,190,240,0.08)';
+  ctx.fillRect(0, GROUND_Y - 200, W, 200);
+
   drawMountains(ctx, camX * 0.12, PAL.mountain2, PAL.mountain2Snow, [
     { x: 80, h: 105, w: 170 }, { x: 320, h: 135, w: 200 }, { x: 580, h: 115, w: 180 },
     { x: 850, h: 150, w: 210 }, { x: 1120, h: 120, w: 190 }, { x: 1400, h: 140, w: 200 },
     { x: 1680, h: 110, w: 170 },
   ]);
+
+  ctx.fillStyle = 'rgba(130,190,240,0.06)';
+  ctx.fillRect(0, GROUND_Y - 120, W, 120);
 
   drawHillLayer(ctx, camX * 0.2, PAL.hill1, [
     { x: 30, w: 220, h: 55 }, { x: 320, w: 260, h: 65 },
@@ -1018,20 +1075,41 @@ function drawHillLayer(ctx, offX, color, hills) {
 
 function drawGround(ctx, camX) {
   ctx.fillStyle = PAL.grass;
-  ctx.fillRect(0, GROUND_Y, W, 6);
+  ctx.fillRect(0, GROUND_Y, W, 8);
 
-  for (let gx = -((camX * 0.99) % 14); gx < W; gx += 12 + Math.sin(gx * 0.4) * 3) {
+  const grassDark = '#38A840';
+  for (let gx = -((camX * 0.99) % 10); gx < W; gx += 8 + Math.sin(gx * 0.7) * 2) {
+    const gh = 3 + Math.sin(gx * 0.3 + 1.5) * 3 + Math.cos(gx * 0.17) * 2;
     ctx.fillStyle = PAL.grassLight;
-    ctx.fillRect(gx, GROUND_Y - 2, 2, 5);
-    ctx.fillRect(gx + 5, GROUND_Y - 3, 2, 6);
+    ctx.fillRect(gx, GROUND_Y - gh, 2, gh + 3);
+    ctx.fillStyle = grassDark;
+    ctx.fillRect(gx + 4, GROUND_Y - gh * 0.7, 1, gh * 0.7 + 2);
   }
 
-  const earthGrad = ctx.createLinearGradient(0, GROUND_Y + 6, 0, H);
+  const earthGrad = ctx.createLinearGradient(0, GROUND_Y + 8, 0, H);
   earthGrad.addColorStop(0, PAL.earth);
-  earthGrad.addColorStop(0.5, PAL.earthDark);
-  earthGrad.addColorStop(1, PAL.stone);
+  earthGrad.addColorStop(0.4, PAL.earthDark);
+  earthGrad.addColorStop(0.8, PAL.stone);
+  earthGrad.addColorStop(1, '#584840');
   ctx.fillStyle = earthGrad;
-  ctx.fillRect(0, GROUND_Y + 6, W, H - GROUND_Y - 6);
+  ctx.fillRect(0, GROUND_Y + 8, W, H - GROUND_Y - 8);
+
+  ctx.fillStyle = 'rgba(0,0,0,0.06)';
+  for (let sx = -((camX * 0.99) % 60); sx < W; sx += 50 + Math.sin(sx * 0.1) * 15) {
+    const sw = 4 + Math.sin(sx * 0.2) * 2;
+    ctx.fillRect(sx, GROUND_Y + 30 + Math.sin(sx * 0.3) * 10, sw, 2);
+    ctx.fillRect(sx + 20, GROUND_Y + 50 + Math.cos(sx * 0.2) * 8, sw * 0.8, 1.5);
+  }
+}
+
+function drawShadow(ctx, x, y, w, h) {
+  ctx.save();
+  ctx.globalAlpha = 0.18;
+  ctx.fillStyle = '#000';
+  ctx.beginPath();
+  ctx.ellipse(x + w / 2, y + h, w * 0.7, 4, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1256,12 +1334,11 @@ class Game {
     this.running = true;
     this.controlsAlpha = 1;
     this.controlsTimer = 180;
-    this.bgCanvas = document.createElement('canvas');
-    this.bgCanvas.width = Math.ceil(W / PX);
-    this.bgCanvas.height = Math.ceil(H / PX);
-    this.bgCtx = this.bgCanvas.getContext('2d');
+    this.motes = [];
+    this.frame = 0;
     this.buildLevel();
     for (let i = 0; i < 12; i++) this.clouds.push(new Cloud());
+    for (let i = 0; i < 25; i++) this.motes.push(new LightMote());
   }
 
   buildLevel() {
@@ -1350,6 +1427,8 @@ class Game {
     if (justPressed['KeyM']) SFX.toggleMute();
 
     for (const c of this.clouds) c.update();
+    for (const m of this.motes) m.update(this.frame);
+    this.frame++;
     this.particles = this.particles.filter(p => p.update());
 
     if (this.controlsTimer > 0) {
@@ -1448,34 +1527,42 @@ class Game {
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
     const camX = this.camera.x;
 
-    const bg = this.bgCtx;
-    bg.clearRect(0, 0, this.bgCanvas.width, this.bgCanvas.height);
-    bg.save();
-    bg.scale(1 / PX, 1 / PX);
-    drawBackground(bg, camX);
-    for (const c of this.clouds) c.draw(bg, camX);
+    drawBackground(ctx, camX);
+    for (const c of this.clouds) c.draw(ctx, camX);
     for (const d of this.decorations) {
-      if (d.type === 'bush') drawBush(bg, d.x, GROUND_Y - 2, d.w, camX);
-      if (d.type === 'tree') drawTree(bg, d.x, camX);
-      if (d.type === 'flower') drawFlower(bg, d.x, camX, d.color);
+      if (d.type === 'bush') drawBush(ctx, d.x, GROUND_Y - 2, d.w, camX);
+      if (d.type === 'tree') drawTree(ctx, d.x, camX);
+      if (d.type === 'flower') drawFlower(ctx, d.x, camX, d.color);
     }
-    drawGround(bg, camX);
-    bg.restore();
-
-    ctx.save();
-    ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(this.bgCanvas, 0, 0, W, H);
-    ctx.restore();
+    drawGround(ctx, camX);
 
     for (const b of this.bricks) b.draw(ctx, camX);
     for (const b of this.blocks) b.draw(ctx, camX);
-    for (const e of this.enemies) e.draw(ctx, camX);
 
+    for (const e of this.enemies) {
+      if (e.alive) drawShadow(ctx, e.x - camX, e.y, e.w, e.h);
+      e.draw(ctx, camX);
+    }
+
+    if (!this.player.dead) {
+      drawShadow(ctx, this.player.x - camX, this.player.y, this.player.w, this.player.h);
+    }
     this.player.draw(ctx, camX);
+
+    for (const m of this.motes) m.draw(ctx, camX);
 
     for (const p of this.particles) p.draw(ctx, camX);
 
     if (this.infoPanel) this.infoPanel.draw(ctx, camX);
+
+    ctx.save();
+    const vigR = Math.max(W, H) * 0.75;
+    const vig = ctx.createRadialGradient(W / 2, H / 2, vigR * 0.5, W / 2, H / 2, vigR);
+    vig.addColorStop(0, 'rgba(0,0,0,0)');
+    vig.addColorStop(1, 'rgba(0,0,0,0.2)');
+    ctx.fillStyle = vig;
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
 
     if (this.controlsAlpha > 0) {
       ctx.save();
