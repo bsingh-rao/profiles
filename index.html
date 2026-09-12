@@ -159,6 +159,182 @@ window.addEventListener('keydown', e => {
 window.addEventListener('keyup', e => { keys[e.code] = false; });
 
 // ═══════════════════════════════════════════════════════════════
+// AUDIO
+// ═══════════════════════════════════════════════════════════════
+const SFX = {
+  ctx: null,
+  muted: false,
+  musicGain: null,
+  musicPlaying: false,
+
+  init() {
+    if (this.ctx) return;
+    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    this.masterGain = this.ctx.createGain();
+    this.masterGain.gain.value = 0.4;
+    this.masterGain.connect(this.ctx.destination);
+    this.musicGain = this.ctx.createGain();
+    this.musicGain.gain.value = 0.12;
+    this.musicGain.connect(this.masterGain);
+  },
+
+  ensure() {
+    this.init();
+    if (this.ctx.state === 'suspended') this.ctx.resume();
+  },
+
+  toggleMute() {
+    this.muted = !this.muted;
+    if (this.masterGain) this.masterGain.gain.value = this.muted ? 0 : 0.4;
+  },
+
+  tone(freq, duration, type, vol, dest) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const o = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    o.type = type || 'square';
+    o.frequency.value = freq;
+    g.gain.value = vol || 0.3;
+    g.gain.linearRampToValueAtTime(0, t + duration);
+    o.connect(g);
+    g.connect(dest || this.masterGain);
+    o.start(t);
+    o.stop(t + duration);
+  },
+
+  sweep(startFreq, endFreq, duration, type, vol) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const o = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    o.type = type || 'square';
+    o.frequency.value = startFreq;
+    o.frequency.linearRampToValueAtTime(endFreq, t + duration);
+    g.gain.value = vol || 0.2;
+    g.gain.linearRampToValueAtTime(0, t + duration);
+    o.connect(g);
+    g.connect(this.masterGain);
+    o.start(t);
+    o.stop(t + duration);
+  },
+
+  jump() {
+    this.ensure();
+    this.sweep(280, 580, 0.15, 'square', 0.15);
+  },
+
+  coin() {
+    this.ensure();
+    const t = this.ctx.currentTime;
+    const o1 = this.ctx.createOscillator();
+    const o2 = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    o1.type = 'square'; o1.frequency.value = 988;
+    o2.type = 'square'; o2.frequency.value = 1319;
+    g.gain.value = 0.18;
+    g.gain.linearRampToValueAtTime(0, t + 0.3);
+    o1.connect(g); o2.connect(g); g.connect(this.masterGain);
+    o1.start(t); o1.stop(t + 0.08);
+    o2.start(t + 0.08); o2.stop(t + 0.3);
+  },
+
+  brickBreak() {
+    this.ensure();
+    this.sweep(200, 60, 0.2, 'sawtooth', 0.15);
+    const t = this.ctx.currentTime;
+    const buf = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.12, this.ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
+    const src = this.ctx.createBufferSource();
+    const g = this.ctx.createGain();
+    src.buffer = buf;
+    g.gain.value = 0.12;
+    g.gain.linearRampToValueAtTime(0, t + 0.12);
+    src.connect(g); g.connect(this.masterGain);
+    src.start(t);
+  },
+
+  panelOpen() {
+    this.ensure();
+    const t = this.ctx.currentTime;
+    [523, 659, 784].forEach((f, i) => {
+      const o = this.ctx.createOscillator();
+      const g = this.ctx.createGain();
+      o.type = 'sine';
+      o.frequency.value = f;
+      g.gain.value = 0.12;
+      g.gain.linearRampToValueAtTime(0, t + 0.08 * i + 0.15);
+      o.connect(g); g.connect(this.masterGain);
+      o.start(t + 0.06 * i);
+      o.stop(t + 0.06 * i + 0.15);
+    });
+  },
+
+  panelClose() {
+    this.ensure();
+    this.sweep(600, 350, 0.12, 'sine', 0.1);
+  },
+
+  charSelect() {
+    this.ensure();
+    this.tone(440, 0.08, 'square', 0.1);
+  },
+
+  gameStart() {
+    this.ensure();
+    const t = this.ctx.currentTime;
+    [262, 330, 392, 523].forEach((f, i) => {
+      const o = this.ctx.createOscillator();
+      const g = this.ctx.createGain();
+      o.type = 'square';
+      o.frequency.value = f;
+      g.gain.value = 0.15;
+      g.gain.linearRampToValueAtTime(0, t + 0.1 * i + 0.18);
+      o.connect(g); g.connect(this.masterGain);
+      o.start(t + 0.1 * i);
+      o.stop(t + 0.1 * i + 0.18);
+    });
+  },
+
+  startMusic() {
+    if (this.musicPlaying || !this.ctx) return;
+    this.musicPlaying = true;
+    const melody = [
+      262, 294, 330, 262, 0, 330, 392, 0,
+      392, 440, 392, 330, 294, 262, 0, 0,
+      330, 294, 262, 294, 330, 0, 262, 0,
+      392, 349, 330, 294, 262, 330, 294, 0,
+    ];
+    const noteLen = 0.22;
+    const loopMusic = () => {
+      if (!this.musicPlaying) return;
+      const t = this.ctx.currentTime + 0.05;
+      melody.forEach((freq, i) => {
+        if (freq === 0) return;
+        const o = this.ctx.createOscillator();
+        const g = this.ctx.createGain();
+        o.type = 'triangle';
+        o.frequency.value = freq;
+        g.gain.value = 1;
+        g.gain.setValueAtTime(1, t + i * noteLen);
+        g.gain.linearRampToValueAtTime(0, t + i * noteLen + noteLen * 0.85);
+        o.connect(g); g.connect(this.musicGain);
+        o.start(t + i * noteLen);
+        o.stop(t + i * noteLen + noteLen);
+      });
+      this._musicTimer = setTimeout(loopMusic, melody.length * noteLen * 1000);
+    };
+    loopMusic();
+  },
+
+  stopMusic() {
+    this.musicPlaying = false;
+    if (this._musicTimer) clearTimeout(this._musicTimer);
+  }
+};
+
+// ═══════════════════════════════════════════════════════════════
 // UTILITIES
 // ═══════════════════════════════════════════════════════════════
 function lerp(a, b, t) { return a + (b - a) * t; }
@@ -327,6 +503,7 @@ class Player {
       this.grounded = false;
       this.coyote = 0;
       this.jumpHeld = true;
+      SFX.jump();
     }
     if (!wantJump) this.jumpHeld = false;
     if (!wantJump && this.vy < 0) this.vy *= PHY.jumpCutMul;
@@ -458,6 +635,7 @@ class Block {
     }
 
     this.active = true;
+    SFX.coin();
     game.showInfoPanel(this);
 
     for (let i = 0; i < 6; i++) {
@@ -544,6 +722,7 @@ class Brick {
 
   hit(game) {
     this.alive = false;
+    SFX.brickBreak();
     const colors = [PAL.brickFace, PAL.brickBorder, PAL.brickMortar, '#C05838'];
     for (let i = 0; i < 12; i++) {
       game.particles.push(new Particle(
@@ -1010,6 +1189,7 @@ class Game {
   showInfoPanel(block) {
     this.infoPanel = new InfoPanel(block);
     this.paused = true;
+    SFX.panelOpen();
   }
 
   cycleInfoPanel() {
@@ -1019,6 +1199,7 @@ class Game {
     b.active = false;
     this.infoPanel = null;
     this.paused = false;
+    SFX.panelClose();
     this.player.y = GROUND_Y - this.player.h;
     this.player.vy = 0;
     this.player.grounded = true;
@@ -1027,6 +1208,8 @@ class Game {
   }
 
   update(dt) {
+    if (justPressed['KeyM']) SFX.toggleMute();
+
     for (const c of this.clouds) c.update();
     this.particles = this.particles.filter(p => p.update());
 
@@ -1047,6 +1230,7 @@ class Game {
         this.infoPanel.block.active = false;
         this.infoPanel = null;
         this.paused = false;
+        SFX.panelClose();
       }
       return;
     }
@@ -1129,9 +1313,18 @@ class Game {
       ctx.font = '9px "Press Start 2P", monospace';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'bottom';
-      ctx.fillText('← →  Move     SPACE  Jump', W / 2, H - 15);
+      ctx.fillText('← →  Move     SPACE  Jump     M  Sound', W / 2, H - 15);
       ctx.restore();
     }
+
+    ctx.save();
+    ctx.globalAlpha = 0.5;
+    ctx.fillStyle = '#FFF8E8';
+    ctx.font = '8px "Press Start 2P", monospace';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'top';
+    ctx.fillText(SFX.muted ? 'MUTED' : '', W - 12, 10);
+    ctx.restore();
   }
 
   loop(ts) {
@@ -1282,13 +1475,17 @@ canvas.setAttribute('tabindex', '0');
 
 function startLoop() {
   if (gameStarted) return;
+  if (justPressed['KeyM']) SFX.toggleMute();
   if (justPressed['ArrowLeft'] || justPressed['KeyA']) {
     selectedChar = (selectedChar - 1 + CHARS.length) % CHARS.length;
+    SFX.ensure(); SFX.charSelect();
   }
   if (justPressed['ArrowRight'] || justPressed['KeyD']) {
     selectedChar = (selectedChar + 1) % CHARS.length;
+    SFX.ensure(); SFX.charSelect();
   }
   if (justPressed['Enter'] || justPressed['Space']) {
+    SFX.ensure(); SFX.gameStart();
     justPressed = {};
     startGame();
     return;
@@ -1303,6 +1500,7 @@ startLoop();
 function startGame() {
   gameStarted = true;
   window.game = new Game(canvas, selectedChar);
+  SFX.startMusic();
   window.game.loop(0);
 }
 </script>
