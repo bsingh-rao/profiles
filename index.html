@@ -7,11 +7,11 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Press+Start+2P&display=swap" rel="stylesheet">
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
-html, body { width: 100%; height: 100%; overflow: hidden; background: #1a1a2e; }
+html, body { width: 100%; height: 100vh; overflow: hidden; background: #1a1a2e !important; padding: 0 !important; }
 #game-container {
-  width: 100%; height: 100%;
+  width: 100vw; height: 100vh;
   display: flex; align-items: center; justify-content: center;
-  position: relative;
+  position: fixed; top: 0; left: 0;
 }
 canvas { display: block; }
 #controls-overlay {
@@ -1306,6 +1306,9 @@ resizeCanvas();
 
 startCanvas = canvas;
 startCtx = canvas.getContext('2d');
+
+canvas.addEventListener('click', () => canvas.focus());
+canvas.setAttribute('tabindex', '0');
 
 function startLoop() {
   if (gameStarted) return;
