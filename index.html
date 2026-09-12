@@ -88,6 +88,7 @@ const W = 960, H = 540;
 const TILE = 48;
 const LEVEL_W = 1776;
 const DPR = Math.min(window.devicePixelRatio || 1, 2);
+const PX = 3;
 
 const PHY = {
   gravity: 0.48,
@@ -274,6 +275,26 @@ const SFX = {
   panelClose() {
     this.ensure();
     this.sweep(600, 350, 0.12, 'sine', 0.1);
+  },
+
+  die() {
+    this.ensure();
+    const t = this.ctx.currentTime;
+    [400, 350, 280, 200, 140].forEach((f, i) => {
+      const o = this.ctx.createOscillator();
+      const g = this.ctx.createGain();
+      o.type = 'square';
+      o.frequency.value = f;
+      g.gain.value = 0.18;
+      g.gain.linearRampToValueAtTime(0, t + 0.1 * i + 0.12);
+      o.connect(g); g.connect(this.masterGain);
+      o.start(t + 0.1 * i); o.stop(t + 0.1 * i + 0.12);
+    });
+  },
+
+  stomp() {
+    this.ensure();
+    this.tone(200, 0.1, 'square', 0.15);
   },
 
   charSelect() {
@@ -480,9 +501,16 @@ class Player {
     this.frameTimer = 0;
     this.state = 'idle';
     this.charIdx = charIdx;
+    this.dead = false;
   }
 
   update(paused) {
+    if (this.dead) {
+      this.vy += PHY.gravity * 0.7;
+      this.y += this.vy;
+      this.state = this.vy < 0 ? 'jump' : 'fall';
+      return;
+    }
     if (paused) return;
     const onGround = this.grounded;
     let inputX = 0;
@@ -756,6 +784,81 @@ class Brick {
     ctx.moveTo(sx + TILE * 0.75, sy + TILE * 0.33); ctx.lineTo(sx + TILE * 0.75, sy + TILE * 0.66);
     ctx.moveTo(sx + TILE * 0.5, sy + TILE * 0.66); ctx.lineTo(sx + TILE * 0.5, sy + TILE);
     ctx.stroke();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ENEMY
+// ═══════════════════════════════════════════════════════════════
+class Enemy {
+  constructor(x, left, right) {
+    this.x = x; this.y = GROUND_Y - 24;
+    this.w = 24; this.h = 24;
+    this.vx = 0.7; this.left = left; this.right = right;
+    this.alive = true; this.frame = 0; this.frameTimer = 0;
+    this.squishTimer = 0; this.startX = x;
+  }
+
+  update() {
+    if (!this.alive) { if (this.squishTimer > 0) this.squishTimer--; return; }
+    this.x += this.vx;
+    if (this.x <= this.left || this.x + this.w >= this.right) this.vx = -this.vx;
+    this.frameTimer++;
+    if (this.frameTimer > 10) { this.frame = 1 - this.frame; this.frameTimer = 0; }
+  }
+
+  stomp(game) {
+    this.alive = false;
+    this.squishTimer = 40;
+    SFX.stomp();
+    for (let i = 0; i < 4; i++) {
+      game.particles.push(new Particle(
+        this.x + this.w / 2, this.y + this.h,
+        (Math.random() - 0.5) * 3, -Math.random() * 2,
+        3, '#8B4020', 20
+      ));
+    }
+  }
+
+  reset() {
+    this.x = this.startX; this.alive = true;
+    this.squishTimer = 0; this.vx = 0.7;
+  }
+
+  draw(ctx, camX) {
+    if (!this.alive && this.squishTimer <= 0) return;
+    const sx = Math.round(this.x - camX);
+    if (sx < -30 || sx > W + 30) return;
+
+    if (!this.alive) {
+      const sy = GROUND_Y - 8;
+      ctx.fillStyle = '#8B4020';
+      ctx.fillRect(sx, sy, this.w, 8);
+      ctx.fillStyle = '#D4A060';
+      ctx.fillRect(sx + 2, sy + 1, 20, 3);
+      ctx.fillStyle = '#FFF';
+      ctx.fillRect(sx + 5, sy + 1, 3, 3);
+      ctx.fillRect(sx + 16, sy + 1, 3, 3);
+      return;
+    }
+
+    const sy = Math.round(this.y);
+    ctx.fillStyle = '#8B4020';
+    ctx.fillRect(sx + 4, sy, 16, 4);
+    ctx.fillRect(sx + 2, sy + 4, 20, 4);
+    ctx.fillRect(sx, sy + 8, 24, 4);
+    ctx.fillStyle = '#D4A060';
+    ctx.fillRect(sx + 2, sy + 12, 20, 4);
+    ctx.fillStyle = '#FFF';
+    ctx.fillRect(sx + 4, sy + 12, 6, 4);
+    ctx.fillRect(sx + 14, sy + 12, 6, 4);
+    ctx.fillStyle = '#1A1A1A';
+    ctx.fillRect(sx + 6, sy + 13, 3, 2);
+    ctx.fillRect(sx + 15, sy + 13, 3, 2);
+    ctx.fillStyle = '#4A2510';
+    const off = this.frame === 0 ? 0 : 2;
+    ctx.fillRect(sx + 2 - off, sy + 16, 8, 8);
+    ctx.fillRect(sx + 14 + off, sy + 16, 8, 8);
   }
 }
 
@@ -1148,9 +1251,15 @@ class Game {
     this.infoPanel = null;
     this.paused = false;
     this.decorations = [];
+    this.enemies = [];
+    this.deathTimer = 0;
     this.running = true;
     this.controlsAlpha = 1;
     this.controlsTimer = 180;
+    this.bgCanvas = document.createElement('canvas');
+    this.bgCanvas.width = Math.ceil(W / PX);
+    this.bgCanvas.height = Math.ceil(H / PX);
+    this.bgCtx = this.bgCanvas.getContext('2d');
     this.buildLevel();
     for (let i = 0; i < 12; i++) this.clouds.push(new Cloud());
   }
@@ -1184,6 +1293,18 @@ class Game {
     this.decorations.push({ type: 'flower', x: 1150, color: '#FF6688' });
     this.decorations.push({ type: 'flower', x: 1580, color: '#FFD040' });
     this.decorations.push({ type: 'flower', x: 1700, color: '#7088FF' });
+
+    this.bricks.push(new Brick(4 * TILE, by));
+    this.bricks.push(new Brick(5 * TILE, by));
+    this.bricks.push(new Brick(11 * TILE, by));
+    this.bricks.push(new Brick(17 * TILE, by));
+    this.bricks.push(new Brick(18 * TILE, by));
+    this.bricks.push(new Brick(24 * TILE, by));
+    this.bricks.push(new Brick(31 * TILE, by));
+
+    this.enemies.push(new Enemy(530, 480, 620));
+    this.enemies.push(new Enemy(860, 800, 950));
+    this.enemies.push(new Enemy(1200, 1130, 1280));
   }
 
   showInfoPanel(block) {
@@ -1207,6 +1328,24 @@ class Game {
     this.player.state = 'idle';
   }
 
+  playerDie() {
+    this.player.dead = true;
+    this.player.vy = -10;
+    this.player.vx = 0;
+    this.deathTimer = 90;
+    this.infoPanel = null;
+    this.paused = false;
+    SFX.die();
+  }
+
+  respawn() {
+    const idx = this.player.charIdx;
+    this.player = new Player(80, GROUND_Y - 48, idx);
+    this.camera.x = 0;
+    this.camera.targetX = 0;
+    for (const e of this.enemies) e.reset();
+  }
+
   update(dt) {
     if (justPressed['KeyM']) SFX.toggleMute();
 
@@ -1216,6 +1355,13 @@ class Game {
     if (this.controlsTimer > 0) {
       this.controlsTimer--;
       if (this.controlsTimer < 60) this.controlsAlpha = this.controlsTimer / 60;
+    }
+
+    if (this.player.dead) {
+      this.player.update(false);
+      this.deathTimer--;
+      if (this.deathTimer <= 0) this.respawn();
+      return;
     }
 
     if (this.infoPanel) {
@@ -1243,6 +1389,22 @@ class Game {
     }
     for (const b of this.bricks) {
       if (b.alive) this.resolveCollision(this.player, b, b.alive);
+    }
+
+    for (const e of this.enemies) e.update();
+    for (const e of this.enemies) {
+      if (!e.alive) continue;
+      if (overlap(this.player.x + 4, this.player.y, this.player.w - 8, this.player.h,
+                  e.x, e.y, e.w, e.h)) {
+        if (this.player.vy > 0 && this.player.y + this.player.h < e.y + 14) {
+          e.stomp(this);
+          this.player.vy = -8;
+          this.player.grounded = false;
+        } else {
+          this.playerDie();
+          return;
+        }
+      }
     }
 
     this.camera.follow(this.player.x + this.player.w / 2);
@@ -1286,19 +1448,28 @@ class Game {
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
     const camX = this.camera.x;
 
-    drawBackground(ctx, camX);
-    for (const c of this.clouds) c.draw(ctx, camX);
-
+    const bg = this.bgCtx;
+    bg.clearRect(0, 0, this.bgCanvas.width, this.bgCanvas.height);
+    bg.save();
+    bg.scale(1 / PX, 1 / PX);
+    drawBackground(bg, camX);
+    for (const c of this.clouds) c.draw(bg, camX);
     for (const d of this.decorations) {
-      if (d.type === 'bush') drawBush(ctx, d.x, GROUND_Y - 2, d.w, camX);
-      if (d.type === 'tree') drawTree(ctx, d.x, camX);
-      if (d.type === 'flower') drawFlower(ctx, d.x, camX, d.color);
+      if (d.type === 'bush') drawBush(bg, d.x, GROUND_Y - 2, d.w, camX);
+      if (d.type === 'tree') drawTree(bg, d.x, camX);
+      if (d.type === 'flower') drawFlower(bg, d.x, camX, d.color);
     }
+    drawGround(bg, camX);
+    bg.restore();
 
-    drawGround(ctx, camX);
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(this.bgCanvas, 0, 0, W, H);
+    ctx.restore();
 
     for (const b of this.bricks) b.draw(ctx, camX);
     for (const b of this.blocks) b.draw(ctx, camX);
+    for (const e of this.enemies) e.draw(ctx, camX);
 
     this.player.draw(ctx, camX);
 
