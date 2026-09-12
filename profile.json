@@ -1,0 +1,48 @@
+{
+  "presentWork": {
+    "duration": "2023 - Present",
+    "title": "Marketing Manager",
+    "team": "Marketing Operations",
+    "company": "HERE Technologies"
+  },
+  "pastWork": [
+    {
+      "duration": "2013 - 2023",
+      "title": "Sr. Marketing Automation Manager",
+      "team": "Marketing Automation",
+      "company": "Grazitti Interactive"
+    }
+  ],
+  "expertise": {
+    "platforms": ["Adobe Marketo Engage"],
+    "domains": ["Marketing", "Analytics", "AI"]
+  },
+  "keyProjects": [
+    {
+      "title": "Marketing Automation Overhaul",
+      "description": "Led the complete redesign of marketing automation workflows, improving lead conversion rates by 40%."
+    },
+    {
+      "title": "Data Analytics Platform",
+      "description": "Built an integrated analytics dashboard connecting marketing data across 5 platforms for real-time insights."
+    },
+    {
+      "title": "AI-Powered Lead Scoring",
+      "description": "Implemented ML models for predictive lead scoring, improving sales efficiency by 35%."
+    }
+  ],
+  "achievements": [
+    {
+      "title": "Marketo Champion",
+      "description": "Recognized as Adobe Marketo Champion for expertise in marketing automation and community leadership."
+    },
+    {
+      "title": "Revenue Impact Award",
+      "description": "Drove $2M+ in attributed pipeline through innovative marketing automation strategies."
+    },
+    {
+      "title": "Adobe Summit Speaker",
+      "description": "Invited speaker at Adobe Summit, presenting on advanced Marketo automation techniques."
+    }
+  ]
+}

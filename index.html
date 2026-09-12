@@ -1,0 +1,1286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Profile Quest</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: #2a2a2a; }
+#game-container {
+  width: 100%; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  position: relative;
+}
+canvas {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  display: block;
+}
+#controls-overlay {
+  position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+  font-family: 'Press Start 2P', monospace; font-size: 10px;
+  color: rgba(255,255,255,0.5); pointer-events: none;
+  transition: opacity 1s; text-align: center;
+}
+</style>
+</head>
+<body>
+<div id="game-container">
+  <canvas id="game"></canvas>
+  <div id="controls-overlay"></div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// PROFILE DATA
+// ═══════════════════════════════════════════════════════════════
+const PROFILE = {
+  presentWork: {
+    duration: "2023 - Present",
+    title: "Marketing Manager",
+    team: "Marketing Operations",
+    company: "HERE Technologies"
+  },
+  pastWork: [
+    {
+      duration: "2013 - 2023",
+      title: "Sr. Marketing Automation Mgr",
+      team: "Marketing Automation",
+      company: "Grazitti Interactive"
+    }
+  ],
+  expertise: {
+    platforms: ["Adobe Marketo Engage"],
+    domains: ["Marketing", "Analytics", "AI"]
+  },
+  keyProjects: [
+    {
+      title: "Automation Overhaul",
+      description: "Led redesign of marketing automation workflows, improving lead conversion by 40%."
+    },
+    {
+      title: "Analytics Platform",
+      description: "Built integrated analytics dashboard across 5 platforms for real-time campaign insights."
+    },
+    {
+      title: "AI Lead Scoring",
+      description: "Implemented ML models for predictive lead scoring, boosting sales efficiency by 35%."
+    }
+  ],
+  achievements: [
+    {
+      title: "Marketo Champion",
+      description: "Recognized as Adobe Marketo Champion for marketing automation expertise."
+    },
+    {
+      title: "Revenue Impact Award",
+      description: "Drove $2M+ in pipeline through innovative automation strategies."
+    },
+    {
+      title: "Adobe Summit Speaker",
+      description: "Invited speaker presenting on advanced Marketo automation techniques."
+    }
+  ]
+};
+
+// ═══════════════════════════════════════════════════════════════
+// CONFIGURATION
+// ═══════════════════════════════════════════════════════════════
+const W = 960, H = 540;
+const TILE = 48;
+const LEVEL_W = 2400;
+
+const PHY = {
+  gravity: 0.42,
+  jumpVel: -10.2,
+  runAccel: 0.55,
+  runMax: 3.8,
+  groundFriction: 0.76,
+  airFriction: 0.94,
+  airAccel: 0.35,
+  jumpCutMul: 0.42,
+  coyoteFrames: 7,
+  maxFall: 9
+};
+
+const GROUND_Y = 432;
+const BLOCK_Y = 272;
+const INFO_DURATION = 10000;
+
+const PAL = {
+  skyTop: '#A8CCE0',
+  skyBot: '#EDE0D0',
+  mountain1: '#C0D0D8',
+  mountain2: '#A8B8C4',
+  hill: '#8BAA8E',
+  hillDark: '#6E8E72',
+  grass: '#7BA67E',
+  grassLight: '#8EBB90',
+  earth: '#9B8B70',
+  earthDark: '#887860',
+  stone: '#7A7060',
+  blockFace: '#E8C870',
+  blockBorder: '#C4A048',
+  blockShadow: '#B09038',
+  blockActive: '#FFE898',
+  blockQ: '#F5E0A0',
+  brickFace: '#CC9068',
+  brickBorder: '#B07850',
+  brickMortar: '#D8A880',
+  panelBg: '#FFF8EE',
+  panelBorder: '#C8B898',
+  panelText: '#3B3028',
+  panelSubtext: '#6B5B48',
+  timerBar: '#88BB88',
+  timerBarBg: '#E0D8C8',
+  labelBg: 'rgba(59,48,40,0.7)',
+  labelText: '#FFF8EE',
+  cloud: 'rgba(255,255,255,0.7)',
+};
+
+const CHARS = [
+  { name: 'Explorer', hat: '#5B8C4E', body: '#D4A868', pants: '#8B7355', shoes: '#5A4A38', skin: '#FFD5B0', eyes: '#2B2018' },
+  { name: 'Ninja', hat: '#4A4A5E', body: '#3A3A4E', pants: '#2A2A3E', shoes: '#222230', skin: '#FFDCC0', eyes: '#1B1018' },
+  { name: 'Astronaut', hat: '#D8D8E0', body: '#E0E0E8', pants: '#C8C8D0', shoes: '#888898', skin: '#FFD8B8', eyes: '#182028' },
+];
+
+// ═══════════════════════════════════════════════════════════════
+// INPUT
+// ═══════════════════════════════════════════════════════════════
+const keys = {};
+let justPressed = {};
+window.addEventListener('keydown', e => {
+  if (!keys[e.code]) justPressed[e.code] = true;
+  keys[e.code] = true;
+  if (['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault();
+});
+window.addEventListener('keyup', e => { keys[e.code] = false; });
+
+function consumeJustPressed(code) {
+  if (justPressed[code]) { justPressed[code] = false; return true; }
+  return false;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// UTILITIES
+// ═══════════════════════════════════════════════════════════════
+function lerp(a, b, t) { return a + (b - a) * t; }
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+function overlap(ax, ay, aw, ah, bx, by, bw, bh) {
+  return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
+}
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+function wrapText(ctx, text, maxW) {
+  const words = text.split(' ');
+  const lines = [];
+  let line = '';
+  for (const w of words) {
+    const test = line ? line + ' ' + w : w;
+    if (ctx.measureText(test).width > maxW && line) {
+      lines.push(line);
+      line = w;
+    } else {
+      line = test;
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PARTICLES
+// ═══════════════════════════════════════════════════════════════
+class Particle {
+  constructor(x, y, vx, vy, size, color, life) {
+    this.x = x; this.y = y; this.vx = vx; this.vy = vy;
+    this.size = size; this.color = color;
+    this.life = life; this.maxLife = life;
+    this.rot = Math.random() * Math.PI * 2;
+    this.rotV = (Math.random() - 0.5) * 0.15;
+  }
+  update() {
+    this.vy += 0.25;
+    this.x += this.vx;
+    this.y += this.vy;
+    this.rot += this.rotV;
+    this.life--;
+    return this.life > 0;
+  }
+  draw(ctx, camX) {
+    const a = this.life / this.maxLife;
+    ctx.save();
+    ctx.globalAlpha = a;
+    ctx.translate(this.x - camX, this.y);
+    ctx.rotate(this.rot);
+    ctx.fillStyle = this.color;
+    ctx.fillRect(-this.size / 2, -this.size / 2, this.size, this.size);
+    ctx.restore();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CLOUDS
+// ═══════════════════════════════════════════════════════════════
+class Cloud {
+  constructor() {
+    this.reset(true);
+  }
+  reset(init) {
+    this.y = 30 + Math.random() * 120;
+    this.w = 60 + Math.random() * 100;
+    this.h = 20 + Math.random() * 25;
+    this.speed = 0.15 + Math.random() * 0.25;
+    this.alpha = 0.25 + Math.random() * 0.35;
+    if (init) {
+      this.x = Math.random() * (LEVEL_W + W);
+    } else {
+      this.x = LEVEL_W + W + 50;
+    }
+  }
+  update() {
+    this.x -= this.speed;
+    if (this.x + this.w < -W) this.reset(false);
+  }
+  draw(ctx, camX) {
+    const sx = this.x - camX * 0.15;
+    ctx.fillStyle = `rgba(255,255,255,${this.alpha})`;
+    ctx.beginPath();
+    ctx.ellipse(sx + this.w * 0.3, this.y + this.h * 0.6, this.w * 0.3, this.h * 0.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(sx + this.w * 0.55, this.y + this.h * 0.4, this.w * 0.28, this.h * 0.55, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(sx + this.w * 0.75, this.y + this.h * 0.6, this.w * 0.22, this.h * 0.4, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CAMERA
+// ═══════════════════════════════════════════════════════════════
+class Camera {
+  constructor() { this.x = 0; this.targetX = 0; }
+  follow(px) {
+    this.targetX = px - W * 0.35;
+    this.targetX = clamp(this.targetX, 0, LEVEL_W - W);
+    this.x = lerp(this.x, this.targetX, 0.08);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PLAYER
+// ═══════════════════════════════════════════════════════════════
+class Player {
+  constructor(x, y, charIdx) {
+    this.x = x; this.y = y;
+    this.w = 30; this.h = 44;
+    this.vx = 0; this.vy = 0;
+    this.grounded = false;
+    this.coyote = 0;
+    this.jumpHeld = false;
+    this.facing = 1;
+    this.frame = 0;
+    this.frameTimer = 0;
+    this.state = 'idle';
+    this.charIdx = charIdx;
+  }
+
+  update(paused) {
+    if (paused) return;
+    const onGround = this.grounded;
+    let inputX = 0;
+    if (keys['ArrowLeft'] || keys['KeyA']) inputX = -1;
+    if (keys['ArrowRight'] || keys['KeyD']) inputX = 1;
+    if (inputX !== 0) this.facing = inputX;
+
+    const accel = onGround ? PHY.runAccel : PHY.airAccel;
+    const friction = onGround ? PHY.groundFriction : PHY.airFriction;
+    this.vx += inputX * accel;
+    this.vx *= friction;
+    if (Math.abs(this.vx) > PHY.runMax) this.vx = PHY.runMax * Math.sign(this.vx);
+    if (Math.abs(this.vx) < 0.1) this.vx = 0;
+
+    const wantJump = keys['Space'] || keys['ArrowUp'] || keys['KeyW'];
+    if (wantJump && !this.jumpHeld && this.coyote > 0) {
+      this.vy = PHY.jumpVel;
+      this.grounded = false;
+      this.coyote = 0;
+      this.jumpHeld = true;
+    }
+    if (!wantJump) this.jumpHeld = false;
+    if (!wantJump && this.vy < 0) {
+      this.vy *= PHY.jumpCutMul;
+    }
+
+    this.vy += PHY.gravity;
+    if (this.vy > PHY.maxFall) this.vy = PHY.maxFall;
+
+    this.x += this.vx;
+    this.y += this.vy;
+
+    this.x = clamp(this.x, 0, LEVEL_W - this.w);
+
+    if (this.y + this.h >= GROUND_Y) {
+      this.y = GROUND_Y - this.h;
+      this.vy = 0;
+      this.grounded = true;
+      this.coyote = PHY.coyoteFrames;
+    } else {
+      if (this.grounded) this.coyote = PHY.coyoteFrames;
+      this.grounded = false;
+      if (this.coyote > 0) this.coyote--;
+    }
+
+    if (Math.abs(this.vx) > 0.3 && onGround) {
+      this.state = 'run';
+      this.frameTimer++;
+      if (this.frameTimer > 6) { this.frame = (this.frame + 1) % 4; this.frameTimer = 0; }
+    } else if (!this.grounded) {
+      this.state = this.vy < 0 ? 'jump' : 'fall';
+    } else {
+      this.state = 'idle';
+      this.frame = 0;
+    }
+  }
+
+  draw(ctx, camX) {
+    const c = CHARS[this.charIdx];
+    const sx = Math.round(this.x - camX);
+    const sy = Math.round(this.y);
+    const s = 2.5;
+    const flip = this.facing === -1;
+
+    ctx.save();
+    if (flip) {
+      ctx.translate(sx + this.w, sy);
+      ctx.scale(-1, 1);
+    } else {
+      ctx.translate(sx, sy);
+    }
+
+    // Hat
+    ctx.fillStyle = c.hat;
+    ctx.fillRect(2*s, 0, 8*s, 2*s);
+    ctx.fillRect(1*s, 1.5*s, 10*s, 2*s);
+
+    // Head
+    ctx.fillStyle = c.skin;
+    ctx.fillRect(3*s, 3*s, 6*s, 5*s);
+
+    // Eyes
+    ctx.fillStyle = c.eyes;
+    ctx.fillRect(5*s, 4.5*s, 1.2*s, 1.5*s);
+    ctx.fillRect(7.5*s, 4.5*s, 1.2*s, 1.5*s);
+
+    // Body
+    ctx.fillStyle = c.body;
+    ctx.fillRect(2.5*s, 8*s, 7*s, 5*s);
+
+    // Arms
+    ctx.fillStyle = c.skin;
+    if (this.state === 'jump') {
+      ctx.fillRect(0, 6*s, 2.5*s, 2*s);
+      ctx.fillRect(9.5*s, 6*s, 2.5*s, 2*s);
+    } else if (this.state === 'run') {
+      const off = (this.frame % 2) * 1.5 * s;
+      ctx.fillRect(0, 9*s - off, 2.5*s, 2*s);
+      ctx.fillRect(9.5*s, 9*s + off - 1.5*s, 2.5*s, 2*s);
+    } else {
+      ctx.fillRect(0, 9*s, 2.5*s, 2.5*s);
+      ctx.fillRect(9.5*s, 9*s, 2.5*s, 2.5*s);
+    }
+
+    // Pants
+    ctx.fillStyle = c.pants;
+    ctx.fillRect(3*s, 13*s, 6*s, 2*s);
+
+    // Legs
+    if (this.state === 'run') {
+      const f = this.frame;
+      const offL = (f === 0 || f === 2) ? 0 : 1.5 * s;
+      const offR = (f === 0 || f === 2) ? 1.5 * s : 0;
+      ctx.fillRect(3*s, 15*s - offL, 2.5*s, 2*s + offL);
+      ctx.fillRect(6.5*s, 15*s - offR, 2.5*s, 2*s + offR);
+    } else if (this.state === 'jump' || this.state === 'fall') {
+      ctx.fillRect(2.5*s, 15*s, 3*s, 1.5*s);
+      ctx.fillRect(6.5*s, 15*s, 3*s, 1.5*s);
+    } else {
+      ctx.fillRect(3*s, 15*s, 2.5*s, 2*s);
+      ctx.fillRect(6.5*s, 15*s, 2.5*s, 2*s);
+    }
+
+    // Shoes
+    ctx.fillStyle = c.shoes;
+    ctx.fillRect(2*s, 17*s, 3.5*s, 1.2*s);
+    ctx.fillRect(6.5*s, 17*s, 3.5*s, 1.2*s);
+
+    ctx.restore();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// BLOCK
+// ═══════════════════════════════════════════════════════════════
+class Block {
+  constructor(x, y, type, label, content, subCount) {
+    this.x = x; this.y = y;
+    this.w = TILE; this.h = TILE;
+    this.type = type;
+    this.label = label;
+    this.content = content;
+    this.active = false;
+    this.bounceOff = 0;
+    this.bounceVel = 0;
+    this.hitCount = 0;
+    this.subCount = subCount || 0;
+    this.currentSub = 0;
+    this.revealed = [];
+  }
+
+  hit(game) {
+    if (this.active) return;
+    this.bounceOff = -10;
+    this.bounceVel = 0;
+
+    if (this.subCount > 0) {
+      this.currentSub = this.hitCount % this.subCount;
+      if (!this.revealed.includes(this.currentSub)) this.revealed.push(this.currentSub);
+      this.hitCount++;
+    }
+
+    this.active = true;
+    game.showInfoPanel(this);
+
+    for (let i = 0; i < 5; i++) {
+      game.particles.push(new Particle(
+        this.x + TILE / 2, this.y - 5,
+        (Math.random() - 0.5) * 3, -Math.random() * 4 - 1,
+        3 + Math.random() * 3, '#FFE898', 30 + Math.random() * 20
+      ));
+    }
+  }
+
+  update() {
+    if (this.bounceOff < 0) {
+      this.bounceVel += 1.2;
+      this.bounceOff += this.bounceVel;
+      if (this.bounceOff >= 0) { this.bounceOff = 0; this.bounceVel = 0; }
+    }
+  }
+
+  draw(ctx, camX) {
+    const sx = this.x - camX;
+    const sy = this.y + this.bounceOff;
+    const face = this.active ? PAL.blockActive : PAL.blockFace;
+
+    // Shadow
+    ctx.fillStyle = PAL.blockShadow;
+    ctx.fillRect(sx + 3, sy + 3, TILE, TILE);
+
+    // Face
+    ctx.fillStyle = face;
+    ctx.fillRect(sx, sy, TILE, TILE);
+
+    // Border
+    ctx.strokeStyle = PAL.blockBorder;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(sx + 1, sy + 1, TILE - 2, TILE - 2);
+
+    // Inner highlight
+    ctx.fillStyle = this.active ? '#FFF0C0' : PAL.blockQ;
+    ctx.fillRect(sx + 6, sy + 6, TILE - 12, TILE - 12);
+
+    // "?" symbol
+    ctx.fillStyle = PAL.blockBorder;
+    ctx.font = 'bold 22px "Press Start 2P", monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('?', sx + TILE / 2, sy + TILE / 2 + 1);
+
+    // Blocksubs
+    if (this.subCount > 0) {
+      const subW = 10, gap = 6;
+      const totalW = this.subCount * subW + (this.subCount - 1) * gap;
+      const startX = sx + TILE / 2 - totalW / 2;
+      for (let i = 0; i < this.subCount; i++) {
+        const bx = startX + i * (subW + gap);
+        const by = sy - 18;
+        // Stick
+        ctx.fillStyle = '#A09080';
+        ctx.fillRect(bx + subW / 2 - 1, by + subW, 2, 10);
+        // Circle
+        ctx.beginPath();
+        ctx.arc(bx + subW / 2, by + subW / 2, subW / 2, 0, Math.PI * 2);
+        ctx.fillStyle = this.revealed.includes(i) ? '#FFD060' : '#B0A090';
+        ctx.fill();
+        ctx.strokeStyle = '#806848';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+    }
+
+    // Label below block
+    ctx.font = '7px "Press Start 2P", monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    const labelW = ctx.measureText(this.label).width + 10;
+    roundRect(ctx, sx + TILE / 2 - labelW / 2, sy + TILE + 4, labelW, 16, 3);
+    ctx.fillStyle = PAL.labelBg;
+    ctx.fill();
+    ctx.fillStyle = PAL.labelText;
+    ctx.fillText(this.label, sx + TILE / 2, sy + TILE + 8);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// BRICK
+// ═══════════════════════════════════════════════════════════════
+class Brick {
+  constructor(x, y) {
+    this.x = x; this.y = y;
+    this.w = TILE; this.h = TILE;
+    this.alive = true;
+  }
+
+  hit(game) {
+    this.alive = false;
+    const colors = [PAL.brickFace, PAL.brickBorder, PAL.brickMortar, '#B08060'];
+    for (let i = 0; i < 12; i++) {
+      game.particles.push(new Particle(
+        this.x + Math.random() * TILE, this.y + Math.random() * TILE,
+        (Math.random() - 0.5) * 5, -Math.random() * 7 - 2,
+        4 + Math.random() * 6,
+        colors[Math.floor(Math.random() * colors.length)],
+        50 + Math.random() * 30
+      ));
+    }
+  }
+
+  draw(ctx, camX) {
+    if (!this.alive) return;
+    const sx = this.x - camX;
+    const sy = this.y;
+
+    ctx.fillStyle = PAL.brickFace;
+    ctx.fillRect(sx, sy, TILE, TILE);
+
+    ctx.strokeStyle = PAL.brickBorder;
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(sx, sy, TILE, TILE);
+
+    // Brick pattern
+    ctx.strokeStyle = PAL.brickMortar;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(sx, sy + TILE * 0.33); ctx.lineTo(sx + TILE, sy + TILE * 0.33);
+    ctx.moveTo(sx, sy + TILE * 0.66); ctx.lineTo(sx + TILE, sy + TILE * 0.66);
+    ctx.moveTo(sx + TILE * 0.5, sy); ctx.lineTo(sx + TILE * 0.5, sy + TILE * 0.33);
+    ctx.moveTo(sx + TILE * 0.25, sy + TILE * 0.33); ctx.lineTo(sx + TILE * 0.25, sy + TILE * 0.66);
+    ctx.moveTo(sx + TILE * 0.75, sy + TILE * 0.33); ctx.lineTo(sx + TILE * 0.75, sy + TILE * 0.66);
+    ctx.moveTo(sx + TILE * 0.5, sy + TILE * 0.66); ctx.lineTo(sx + TILE * 0.5, sy + TILE);
+    ctx.stroke();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// DECORATIONS
+// ═══════════════════════════════════════════════════════════════
+function drawBush(ctx, x, y, w, camX) {
+  const sx = x - camX;
+  ctx.fillStyle = '#6E9E72';
+  ctx.beginPath();
+  ctx.ellipse(sx + w * 0.3, y, w * 0.3, 14, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#7BAA7E';
+  ctx.beginPath();
+  ctx.ellipse(sx + w * 0.55, y - 3, w * 0.3, 18, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#6E9E72';
+  ctx.beginPath();
+  ctx.ellipse(sx + w * 0.78, y, w * 0.25, 13, 0, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawFlag(ctx, x, camX) {
+  const sx = x - camX;
+  ctx.fillStyle = '#A09080';
+  ctx.fillRect(sx + 22, GROUND_Y - 140, 4, 140);
+  // Flag
+  ctx.fillStyle = '#DD7766';
+  ctx.beginPath();
+  ctx.moveTo(sx + 26, GROUND_Y - 140);
+  ctx.lineTo(sx + 62, GROUND_Y - 125);
+  ctx.lineTo(sx + 26, GROUND_Y - 110);
+  ctx.closePath();
+  ctx.fill();
+  // Ball
+  ctx.fillStyle = '#F0D870';
+  ctx.beginPath();
+  ctx.arc(sx + 24, GROUND_Y - 142, 5, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// BACKGROUND
+// ═══════════════════════════════════════════════════════════════
+function drawBackground(ctx, camX) {
+  // Sky gradient
+  const grad = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+  grad.addColorStop(0, PAL.skyTop);
+  grad.addColorStop(1, PAL.skyBot);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, GROUND_Y);
+
+  // Far mountains
+  ctx.fillStyle = PAL.mountain1;
+  drawMountainRange(ctx, camX * 0.08, [
+    { x: 0, h: 100 }, { x: 200, h: 150 }, { x: 500, h: 120 },
+    { x: 750, h: 170 }, { x: 1000, h: 130 }, { x: 1300, h: 160 },
+    { x: 1600, h: 110 }, { x: 1900, h: 145 }, { x: 2200, h: 125 }
+  ]);
+
+  // Near mountains
+  ctx.fillStyle = PAL.mountain2;
+  drawMountainRange(ctx, camX * 0.15, [
+    { x: 100, h: 80 }, { x: 350, h: 110 }, { x: 600, h: 90 },
+    { x: 900, h: 130 }, { x: 1150, h: 95 }, { x: 1450, h: 115 },
+    { x: 1700, h: 85 }, { x: 2000, h: 105 }
+  ]);
+
+  // Hills
+  ctx.fillStyle = PAL.hill;
+  drawHills(ctx, camX * 0.25, [
+    { x: 50, w: 200, h: 50 }, { x: 300, w: 250, h: 60 },
+    { x: 650, w: 180, h: 45 }, { x: 900, w: 280, h: 65 },
+    { x: 1250, w: 220, h: 55 }, { x: 1550, w: 200, h: 48 },
+    { x: 1850, w: 260, h: 58 }, { x: 2150, w: 190, h: 50 }
+  ]);
+}
+
+function drawMountainRange(ctx, offX, peaks) {
+  ctx.beginPath();
+  ctx.moveTo(-50, GROUND_Y);
+  for (const p of peaks) {
+    const sx = p.x - offX;
+    ctx.lineTo(sx, GROUND_Y - p.h);
+    ctx.lineTo(sx + 120, GROUND_Y);
+  }
+  ctx.lineTo(W + 50, GROUND_Y);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawHills(ctx, offX, hills) {
+  for (const h of hills) {
+    const sx = h.x - offX;
+    ctx.beginPath();
+    ctx.ellipse(sx + h.w / 2, GROUND_Y, h.w / 2, h.h, 0, Math.PI, 0);
+    ctx.closePath();
+    ctx.fill();
+  }
+}
+
+function drawGround(ctx, camX) {
+  // Grass surface
+  ctx.fillStyle = PAL.grass;
+  ctx.fillRect(0, GROUND_Y, W, 6);
+
+  // Grass detail
+  for (let gx = -((camX * 0.99) % 20); gx < W; gx += 18 + Math.sin(gx * 0.3) * 4) {
+    ctx.fillStyle = PAL.grassLight;
+    ctx.fillRect(gx, GROUND_Y - 2, 2, 4);
+    ctx.fillRect(gx + 5, GROUND_Y - 3, 2, 5);
+  }
+
+  // Earth
+  ctx.fillStyle = PAL.earth;
+  ctx.fillRect(0, GROUND_Y + 6, W, 50);
+
+  // Darker bottom
+  ctx.fillStyle = PAL.earthDark;
+  ctx.fillRect(0, GROUND_Y + 40, W, 20);
+
+  // Stone
+  ctx.fillStyle = PAL.stone;
+  ctx.fillRect(0, GROUND_Y + 55, W, H - GROUND_Y - 55);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// INFO PANEL (drawn on canvas)
+// ═══════════════════════════════════════════════════════════════
+class InfoPanel {
+  constructor(block) {
+    this.block = block;
+    this.timer = INFO_DURATION;
+    this.alpha = 0;
+    this.scale = 0.3;
+  }
+
+  getContent() {
+    const b = this.block;
+    switch (b.type) {
+      case 'present': return {
+        title: 'PRESENT WORK',
+        lines: [
+          { label: 'Duration', value: PROFILE.presentWork.duration },
+          { label: 'Title', value: PROFILE.presentWork.title },
+          { label: 'Team', value: PROFILE.presentWork.team },
+          { label: 'Company', value: PROFILE.presentWork.company },
+        ]
+      };
+      case 'past': return {
+        title: 'PAST WORK',
+        lines: PROFILE.pastWork.map(p => [
+          { label: 'Duration', value: p.duration },
+          { label: 'Title', value: p.title },
+          { label: 'Team', value: p.team },
+          { label: 'Company', value: p.company },
+        ]).flat()
+      };
+      case 'expertise': return {
+        title: 'EXPERTISE',
+        lines: [
+          { label: 'Platforms', value: PROFILE.expertise.platforms.join(', ') },
+          { label: 'Domains', value: PROFILE.expertise.domains.join(', ') },
+        ]
+      };
+      case 'projects': {
+        const idx = b.currentSub;
+        const p = PROFILE.keyProjects[idx];
+        return {
+          title: `PROJECT ${idx + 1}/${b.subCount}`,
+          lines: [
+            { label: 'Title', value: p.title },
+            { label: '', value: p.description },
+          ]
+        };
+      }
+      case 'achievements': {
+        const idx = b.currentSub;
+        const a = PROFILE.achievements[idx];
+        return {
+          title: `ACHIEVEMENT ${idx + 1}/${b.subCount}`,
+          lines: [
+            { label: 'Title', value: a.title },
+            { label: '', value: a.description },
+          ]
+        };
+      }
+    }
+  }
+
+  update(dt) {
+    this.alpha = Math.min(1, this.alpha + 0.06);
+    this.scale = Math.min(1, this.scale + 0.08);
+    this.timer -= dt;
+    return this.timer > 0;
+  }
+
+  draw(ctx, camX) {
+    const content = this.getContent();
+    if (!content) return;
+
+    const panelW = 320;
+    let panelH = 70;
+    ctx.font = '8px "Press Start 2P", monospace';
+    for (const line of content.lines) {
+      if (line.label) panelH += 24;
+      const wrapped = wrapText(ctx, line.value, panelW - 40);
+      if (!line.label) panelH += wrapped.length * 14 + 8;
+    }
+    panelH = Math.max(panelH, 90);
+
+    const bsx = this.block.x - camX + TILE / 2;
+    const panelX = clamp(bsx - panelW / 2, 10, W - panelW - 10);
+    const panelY = clamp(this.block.y - panelH - 30, 10, GROUND_Y - panelH - 20);
+
+    ctx.save();
+    ctx.globalAlpha = this.alpha;
+
+    const cx = panelX + panelW / 2;
+    const cy = panelY + panelH / 2;
+    ctx.translate(cx, cy);
+    ctx.scale(this.scale, this.scale);
+    ctx.translate(-cx, -cy);
+
+    // Shadow
+    ctx.fillStyle = 'rgba(40,30,20,0.15)';
+    roundRect(ctx, panelX + 4, panelY + 4, panelW, panelH, 8);
+    ctx.fill();
+
+    // Background
+    ctx.fillStyle = PAL.panelBg;
+    roundRect(ctx, panelX, panelY, panelW, panelH, 8);
+    ctx.fill();
+
+    // Border
+    ctx.strokeStyle = PAL.panelBorder;
+    ctx.lineWidth = 2.5;
+    roundRect(ctx, panelX, panelY, panelW, panelH, 8);
+    ctx.stroke();
+
+    // Arrow pointing to block
+    const arrowX = clamp(bsx, panelX + 20, panelX + panelW - 20);
+    ctx.fillStyle = PAL.panelBg;
+    ctx.beginPath();
+    ctx.moveTo(arrowX - 8, panelY + panelH);
+    ctx.lineTo(arrowX, panelY + panelH + 10);
+    ctx.lineTo(arrowX + 8, panelY + panelH);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = PAL.panelBorder;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(arrowX - 9, panelY + panelH - 1);
+    ctx.lineTo(arrowX, panelY + panelH + 11);
+    ctx.lineTo(arrowX + 9, panelY + panelH - 1);
+    ctx.stroke();
+    // Cover the border line under the arrow
+    ctx.fillStyle = PAL.panelBg;
+    ctx.fillRect(arrowX - 7, panelY + panelH - 2, 14, 3);
+
+    // Title
+    ctx.fillStyle = PAL.panelText;
+    ctx.font = '10px "Press Start 2P", monospace';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText(content.title, panelX + 15, panelY + 15);
+
+    // Divider
+    ctx.strokeStyle = PAL.panelBorder;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(panelX + 15, panelY + 32);
+    ctx.lineTo(panelX + panelW - 15, panelY + 32);
+    ctx.stroke();
+
+    // Content lines
+    let ty = panelY + 42;
+    ctx.font = '7px "Press Start 2P", monospace';
+    for (const line of content.lines) {
+      if (line.label) {
+        ctx.fillStyle = PAL.panelSubtext;
+        ctx.fillText(line.label + ':', panelX + 15, ty);
+        ty += 13;
+        ctx.fillStyle = PAL.panelText;
+        ctx.fillText(line.value, panelX + 15, ty);
+        ty += 16;
+      } else {
+        ctx.fillStyle = PAL.panelText;
+        const wrapped = wrapText(ctx, line.value, panelW - 40);
+        for (const wl of wrapped) {
+          ctx.fillText(wl, panelX + 15, ty);
+          ty += 13;
+        }
+        ty += 4;
+      }
+    }
+
+    // Timer bar background
+    const barY = panelY + panelH - 14;
+    const barW = panelW - 30;
+    roundRect(ctx, panelX + 15, barY, barW, 6, 3);
+    ctx.fillStyle = PAL.timerBarBg;
+    ctx.fill();
+
+    // Timer bar fill
+    const fillW = barW * (this.timer / INFO_DURATION);
+    if (fillW > 0) {
+      roundRect(ctx, panelX + 15, barY, fillW, 6, 3);
+      ctx.fillStyle = PAL.timerBar;
+      ctx.fill();
+    }
+
+    ctx.restore();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// GAME
+// ═══════════════════════════════════════════════════════════════
+class Game {
+  constructor(canvas, charIdx) {
+    this.canvas = canvas;
+    this.ctx = canvas.getContext('2d');
+    canvas.width = W;
+    canvas.height = H;
+    this.camera = new Camera();
+    this.player = new Player(80, GROUND_Y - 48, charIdx);
+    this.blocks = [];
+    this.bricks = [];
+    this.particles = [];
+    this.clouds = [];
+    this.infoPanel = null;
+    this.paused = false;
+    this.decorations = [];
+    this.running = true;
+    this.controlsAlpha = 1;
+    this.controlsTimer = 180;
+    this.buildLevel();
+    for (let i = 0; i < 10; i++) this.clouds.push(new Cloud());
+  }
+
+  buildLevel() {
+    const by = BLOCK_Y;
+    // Present Work
+    this.blocks.push(new Block(7 * TILE, by, 'present', 'PRESENT', null, 0));
+    // Bricks
+    this.bricks.push(new Brick(9 * TILE, by));
+    this.bricks.push(new Brick(10 * TILE, by));
+    // Past Work
+    this.blocks.push(new Block(13 * TILE, by, 'past', 'PAST WORK', null, 0));
+    // Bricks
+    this.bricks.push(new Brick(15 * TILE, by));
+    this.bricks.push(new Brick(16 * TILE, by));
+    // Expertise
+    this.blocks.push(new Block(20 * TILE, by, 'expertise', 'EXPERTISE', null, 0));
+    // Bricks
+    this.bricks.push(new Brick(22 * TILE, by));
+    this.bricks.push(new Brick(23 * TILE, by));
+    // Key Projects (3 subs)
+    this.blocks.push(new Block(27 * TILE, by, 'projects', 'PROJECTS', null, PROFILE.keyProjects.length));
+    // Bricks
+    this.bricks.push(new Brick(29 * TILE, by));
+    this.bricks.push(new Brick(30 * TILE, by));
+    // Achievements (3 subs)
+    this.blocks.push(new Block(34 * TILE, by, 'achievements', 'AWARDS', null, PROFILE.achievements.length));
+
+    // Decorations (bushes)
+    this.decorations.push({ type: 'bush', x: 150, w: 70 });
+    this.decorations.push({ type: 'bush', x: 520, w: 90 });
+    this.decorations.push({ type: 'bush', x: 1050, w: 65 });
+    this.decorations.push({ type: 'bush', x: 1480, w: 80 });
+    this.decorations.push({ type: 'bush', x: 1900, w: 70 });
+    this.decorations.push({ type: 'flag', x: LEVEL_W - 120 });
+  }
+
+  showInfoPanel(block) {
+    this.infoPanel = new InfoPanel(block);
+    this.paused = true;
+  }
+
+  update(dt) {
+    // Ambient always
+    for (const c of this.clouds) c.update();
+    this.particles = this.particles.filter(p => p.update());
+
+    // Controls hint fade
+    if (this.controlsTimer > 0) {
+      this.controlsTimer--;
+      if (this.controlsTimer < 60) this.controlsAlpha = this.controlsTimer / 60;
+    }
+
+    // Info panel
+    if (this.infoPanel) {
+      if (!this.infoPanel.update(dt)) {
+        this.infoPanel.block.active = false;
+        this.infoPanel = null;
+        this.paused = false;
+      }
+      return;
+    }
+
+    // Player
+    this.player.update(this.paused);
+
+    // Blocks
+    for (const b of this.blocks) {
+      b.update();
+      if (!b.active) this.checkBlockCollision(this.player, b);
+    }
+
+    // Bricks
+    for (const b of this.bricks) {
+      if (b.alive) this.checkBrickCollision(this.player, b);
+    }
+
+    // Camera
+    this.camera.follow(this.player.x + this.player.w / 2);
+  }
+
+  resolveCollision(p, b, canHit) {
+    const prevBottom = p.y + p.h - p.vy;
+    const prevTop = p.y - p.vy;
+
+    // Head hit (from below)
+    if (canHit && p.vy < 0 &&
+        p.x + p.w > b.x && p.x < b.x + b.w &&
+        p.y <= b.y + b.h && prevTop >= b.y + b.h - 2) {
+      p.vy = 2;
+      p.y = b.y + b.h;
+      b.hit(this);
+      return true;
+    }
+    // Landing on top
+    if (p.vy >= 0 &&
+        p.x + p.w > b.x + 2 && p.x < b.x + b.w - 2 &&
+        p.y + p.h >= b.y && prevBottom <= b.y + 4) {
+      p.y = b.y - p.h;
+      p.vy = 0;
+      p.grounded = true;
+      p.coyote = PHY.coyoteFrames;
+      return true;
+    }
+    // Side collision
+    if (overlap(p.x, p.y + 6, p.w, p.h - 12, b.x, b.y, b.w, b.h)) {
+      if (p.x + p.w / 2 < b.x + b.w / 2) {
+        p.x = b.x - p.w;
+      } else {
+        p.x = b.x + b.w;
+      }
+      p.vx = 0;
+      return true;
+    }
+    return false;
+  }
+
+  checkBlockCollision(p, b) { this.resolveCollision(p, b, true); }
+  checkBrickCollision(p, b) { this.resolveCollision(p, b, b.alive); }
+
+  draw() {
+    const ctx = this.ctx;
+    const camX = this.camera.x;
+
+    // Background
+    drawBackground(ctx, camX);
+
+    // Clouds
+    for (const c of this.clouds) c.draw(ctx, camX);
+
+    // Decorations behind player
+    for (const d of this.decorations) {
+      if (d.type === 'bush') drawBush(ctx, d.x, GROUND_Y - 2, d.w, camX);
+      if (d.type === 'flag') drawFlag(ctx, d.x, camX);
+    }
+
+    // Ground
+    drawGround(ctx, camX);
+
+    // Bricks
+    for (const b of this.bricks) b.draw(ctx, camX);
+
+    // Blocks
+    for (const b of this.blocks) b.draw(ctx, camX);
+
+    // Player
+    this.player.draw(ctx, camX);
+
+    // Particles
+    for (const p of this.particles) p.draw(ctx, camX);
+
+    // Info panel
+    if (this.infoPanel) this.infoPanel.draw(ctx, camX);
+
+    // Controls hint
+    if (this.controlsAlpha > 0) {
+      ctx.save();
+      ctx.globalAlpha = this.controlsAlpha * 0.6;
+      ctx.fillStyle = '#FFF8EE';
+      ctx.font = '8px "Press Start 2P", monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText('← →  Move     SPACE  Jump', W / 2, H - 15);
+      ctx.restore();
+    }
+  }
+
+  loop(ts) {
+    if (!this.running) return;
+    const dt = 16.67;
+    this.update(dt);
+    this.draw();
+    justPressed = {};
+    requestAnimationFrame(t => this.loop(t));
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// START SCREEN
+// ═══════════════════════════════════════════════════════════════
+let gameStarted = false;
+let selectedChar = 0;
+let startCanvas, startCtx;
+let titleBounce = 0;
+
+function drawStartScreen() {
+  if (gameStarted) return;
+  const ctx = startCtx;
+  ctx.clearRect(0, 0, W, H);
+
+  // Background gradient
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, PAL.skyTop);
+  grad.addColorStop(1, PAL.skyBot);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+
+  // Decorative ground
+  ctx.fillStyle = PAL.grass;
+  ctx.fillRect(0, H - 80, W, 80);
+  ctx.fillStyle = PAL.earth;
+  ctx.fillRect(0, H - 60, W, 60);
+  ctx.fillStyle = PAL.earthDark;
+  ctx.fillRect(0, H - 30, W, 30);
+
+  // Title
+  titleBounce += 0.03;
+  const tOff = Math.sin(titleBounce) * 5;
+  ctx.fillStyle = PAL.panelText;
+  ctx.font = '28px "Press Start 2P", monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('PROFILE', W / 2, 100 + tOff);
+  ctx.fillStyle = '#B08040';
+  ctx.font = '32px "Press Start 2P", monospace';
+  ctx.fillText('QUEST', W / 2, 145 + tOff);
+
+  // Subtitle
+  ctx.fillStyle = PAL.panelSubtext;
+  ctx.font = '8px "Press Start 2P", monospace';
+  ctx.fillText('An Interactive Professional Profile', W / 2, 190);
+
+  // Character selection
+  ctx.fillStyle = PAL.panelText;
+  ctx.font = '10px "Press Start 2P", monospace';
+  ctx.fillText('Choose Your Character', W / 2, 250);
+
+  const charSpacing = 140;
+  const startX = W / 2 - charSpacing;
+  for (let i = 0; i < CHARS.length; i++) {
+    const cx = startX + i * charSpacing;
+    const cy = 310;
+
+    // Selection highlight
+    if (i === selectedChar) {
+      ctx.strokeStyle = '#FFD060';
+      ctx.lineWidth = 3;
+      roundRect(ctx, cx - 35, cy - 40, 70, 95, 8);
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(255,208,96,0.1)';
+      roundRect(ctx, cx - 35, cy - 40, 70, 95, 8);
+      ctx.fill();
+    }
+
+    // Draw character preview
+    const tempPlayer = new Player(0, 0, i);
+    tempPlayer.state = 'idle';
+    ctx.save();
+    ctx.translate(cx - 15, cy - 25);
+    // Draw without camera offset
+    const c = CHARS[i];
+    const s = 2.5;
+    ctx.fillStyle = c.hat;
+    ctx.fillRect(2*s, 0, 8*s, 2*s);
+    ctx.fillRect(1*s, 1.5*s, 10*s, 2*s);
+    ctx.fillStyle = c.skin;
+    ctx.fillRect(3*s, 3*s, 6*s, 5*s);
+    ctx.fillStyle = c.eyes;
+    ctx.fillRect(5*s, 4.5*s, 1.2*s, 1.5*s);
+    ctx.fillRect(7.5*s, 4.5*s, 1.2*s, 1.5*s);
+    ctx.fillStyle = c.body;
+    ctx.fillRect(2.5*s, 8*s, 7*s, 5*s);
+    ctx.fillStyle = c.skin;
+    ctx.fillRect(0, 9*s, 2.5*s, 2.5*s);
+    ctx.fillRect(9.5*s, 9*s, 2.5*s, 2.5*s);
+    ctx.fillStyle = c.pants;
+    ctx.fillRect(3*s, 13*s, 6*s, 2*s);
+    ctx.fillRect(3*s, 15*s, 2.5*s, 2*s);
+    ctx.fillRect(6.5*s, 15*s, 2.5*s, 2*s);
+    ctx.fillStyle = c.shoes;
+    ctx.fillRect(2*s, 17*s, 3.5*s, 1.2*s);
+    ctx.fillRect(6.5*s, 17*s, 3.5*s, 1.2*s);
+    ctx.restore();
+
+    // Name
+    ctx.fillStyle = i === selectedChar ? '#FFD060' : PAL.panelSubtext;
+    ctx.font = '7px "Press Start 2P", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(CHARS[i].name, cx, cy + 45);
+  }
+
+  // Selection arrows
+  ctx.fillStyle = '#FFD060';
+  ctx.font = '14px "Press Start 2P", monospace';
+  ctx.fillText('◀', startX - 50, 310);
+  ctx.fillText('▶', startX + charSpacing * 2 + 50, 310);
+
+  // Start prompt
+  const promptAlpha = 0.5 + 0.5 * Math.sin(titleBounce * 3);
+  ctx.globalAlpha = promptAlpha;
+  ctx.fillStyle = PAL.panelText;
+  ctx.font = '10px "Press Start 2P", monospace';
+  ctx.fillText('Press ENTER to Start', W / 2, 420);
+  ctx.globalAlpha = 1;
+
+  // Controls
+  ctx.fillStyle = PAL.panelSubtext;
+  ctx.font = '7px "Press Start 2P", monospace';
+  ctx.fillText('← →  Select     ENTER  Start', W / 2, 470);
+
+}
+
+// ═══════════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════════
+const canvas = document.getElementById('game');
+
+function resizeCanvas() {
+  const ratio = W / H;
+  let cw = window.innerWidth;
+  let ch = window.innerHeight;
+  if (cw / ch > ratio) cw = ch * ratio;
+  else ch = cw / ratio;
+  canvas.style.width = cw + 'px';
+  canvas.style.height = ch + 'px';
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+canvas.width = W;
+canvas.height = H;
+startCanvas = canvas;
+startCtx = canvas.getContext('2d');
+
+function startLoop() {
+  if (gameStarted) return;
+  if (justPressed['ArrowLeft'] || justPressed['KeyA']) {
+    selectedChar = (selectedChar - 1 + CHARS.length) % CHARS.length;
+  }
+  if (justPressed['ArrowRight'] || justPressed['KeyD']) {
+    selectedChar = (selectedChar + 1) % CHARS.length;
+  }
+  if (justPressed['Enter'] || justPressed['Space']) {
+    justPressed = {};
+    startGame();
+    return;
+  }
+  justPressed = {};
+  drawStartScreen();
+  requestAnimationFrame(startLoop);
+}
+
+startLoop();
+
+function startGame() {
+  gameStarted = true;
+  window.game = new Game(canvas, selectedChar);
+  window.game.loop(0);
+}
+</script>
+</body>
+</html>
