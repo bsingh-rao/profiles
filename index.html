@@ -970,8 +970,6 @@ class Game {
     this.paused = false;
     this.decorations = [];
     this.running = true;
-    this.pendingCycleBlock = null;
-    this.pendingCycleTimer = 0;
     this.controlsAlpha = 1;
     this.controlsTimer = 180;
     this.buildLevel();
@@ -1026,8 +1024,6 @@ class Game {
     this.player.grounded = true;
     this.player.coyote = PHY.coyoteFrames;
     this.player.state = 'idle';
-    this.pendingCycleBlock = b;
-    this.pendingCycleTimer = 18;
   }
 
   update(dt) {
@@ -1037,32 +1033,6 @@ class Game {
     if (this.controlsTimer > 0) {
       this.controlsTimer--;
       if (this.controlsTimer < 60) this.controlsAlpha = this.controlsTimer / 60;
-    }
-
-    if (this.pendingCycleBlock) {
-      this.pendingCycleTimer--;
-      if (this.pendingCycleTimer <= 0) {
-        const b = this.pendingCycleBlock;
-        this.pendingCycleBlock = null;
-        b.currentSub = b.hitCount % b.subCount;
-        if (!b.revealed.includes(b.currentSub)) b.revealed.push(b.currentSub);
-        b.hitCount++;
-        b.active = true;
-        b.bounceOff = -8;
-        b.bounceVel = 0;
-        this.player.vy = PHY.jumpVel;
-        this.player.grounded = false;
-        this.player.coyote = 0;
-        this.showInfoPanel(b);
-        for (let i = 0; i < 5; i++) {
-          this.particles.push(new Particle(
-            b.x + TILE / 2, b.y - 5,
-            (Math.random() - 0.5) * 3, -Math.random() * 4 - 1,
-            3 + Math.random() * 3, '#FFE898', 30 + Math.random() * 20
-          ));
-        }
-      }
-      return;
     }
 
     if (this.infoPanel) {
